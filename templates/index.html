@@ -1,0 +1,225 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech-to-Speech Translation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .translation-result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .hidden {
+            display: none;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            display: inline-block;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Speech-to-Speech Translation</h1>
+        <p>Translate between English and Dzongkha</p>
+        
+        <div class="controls">
+            <div>
+                <label for="source-lang">Source Language:</label>
+                <select id="source-lang">
+                    <option value="en">English</option>
+                    <option value="dz">Dzongkha</option>
+                </select>
+            </div>
+            
+            <div>
+                <label for="target-lang">Target Language:</label>
+                <select id="target-lang">
+                    <option value="dz">Dzongkha</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="recording-controls">
+            <button id="start-record">Start Recording</button>
+            <button id="stop-record" disabled>Stop Recording</button>
+            <span id="recording-status"></span>
+        </div>
+        
+        <div>
+            <label for="audio-file">Or upload an audio file:</label>
+            <input type="file" id="audio-file" accept=".wav,.mp3,.ogg,.flac,.m4a">
+        </div>
+        
+        <button id="translate-btn">Translate</button>
+        
+        <div id="translation-result" class="translation-result hidden">
+            <div>
+                <h3>Original Text:</h3>
+                <p id="transcription"></p>
+            </div>
+            <div>
+                <h3>Translation:</h3>
+                <p id="translation"></p>
+            </div>
+            <div>
+                <h3>Audio Output:</h3>
+                <audio id="output-audio" controls></audio>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading hidden">
+            Processing... This may take a moment.
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordedBlob;
+        
+        const startRecordBtn = document.getElementById('start-record');
+        const stopRecordBtn = document.getElementById('stop-record');
+        const recordingStatus = document.getElementById('recording-status');
+        const translateBtn = document.getElementById('translate-btn');
+        const audioFileInput = document.getElementById('audio-file');
+        const sourceLangSelect = document.getElementById('source-lang');
+        const targetLangSelect = document.getElementById('target-lang');
+        const resultDiv = document.getElementById('translation-result');
+        const transcriptionElement = document.getElementById('transcription');
+        const translationElement = document.getElementById('translation');
+        const outputAudio = document.getElementById('output-audio');
+        const loadingIndicator = document.getElementById('loading');
+        
+        // Setup source and target language selectors
+        sourceLangSelect.addEventListener('change', () => {
+            // If source is English, target should be Dzongkha and vice versa
+            targetLangSelect.value = sourceLangSelect.value === 'en' ? 'dz' : 'en';
+        });
+        
+        targetLangSelect.addEventListener('change', () => {
+            // If target is English, source should be Dzongkha and vice versa
+            sourceLangSelect.value = targetLangSelect.value === 'en' ? 'dz' : 'en';
+        });
+        
+        // Record audio functionality
+        startRecordBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.addEventListener('dataavailable', event => {
+                    audioChunks.push(event.data);
+                });
+                
+                mediaRecorder.addEventListener('stop', () => {
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    recordingStatus.textContent = 'Recording saved. Ready to translate.';
+                });
+                
+                mediaRecorder.start();
+                startRecordBtn.disabled = true;
+                stopRecordBtn.disabled = false;
+                recordingStatus.textContent = 'Recording...';
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                recordingStatus.textContent = 'Error: Could not access microphone.';
+            }
+        });
+        
+        stopRecordBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                startRecordBtn.disabled = false;
+                stopRecordBtn.disabled = true;
+            }
+        });
+        
+        // Translate functionality
+        translateBtn.addEventListener('click', async () => {
+            let audioData;
+            
+            // Check if we have a file from the file input or recorded audio
+            if (audioFileInput.files && audioFileInput.files[0]) {
+                audioData = audioFileInput.files[0];
+            } else if (recordedBlob) {
+                audioData = recordedBlob;
+            } else {
+                alert('Please record audio or upload an audio file first.');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('audio', audioData);
+            formData.append('source_lang', sourceLangSelect.value);
+            formData.append('target_lang', targetLangSelect.value);
+            
+            resultDiv.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+            translateBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/translate', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    transcriptionElement.textContent = result.transcription;
+                    translationElement.textContent = result.translation;
+                    outputAudio.src = result.audio_url;
+                    resultDiv.classList.remove('hidden');
+                } else {
+                    alert('Error: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Translation error:', error);
+                alert('Error during translation: ' + error.message);
+            } finally {
+                loadingIndicator.classList.add('hidden');
+                translateBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
